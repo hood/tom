@@ -98,11 +98,17 @@ struct TodoRow: View {
     private var display: some View {
         TodoRowContent(text: item.text, checked: model.completing.contains(item.id), hovered: hovering,
                        selected: model.selection == item.id, accent: accent, age: Self.age(item.createdAt))
-            .overlay(alignment: .leading) {
-                Color.clear
-                    .frame(width: 32)
-                    .contentShape(Rectangle())
-                    .onTapGesture { model.complete(item.id) }
+            .overlay {
+                // sibling hit areas: the dot fires instantly, the double-click to edit can't delay it
+                HStack(spacing: 0) {
+                    Button { model.complete(item.id) } label: {
+                        Color.clear.frame(width: 32).frame(maxHeight: .infinity).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) { model.editing = item.id }
+                }
             }
             .overlay(alignment: .trailing) {
                 if hovering && !model.completing.contains(item.id) {
@@ -118,8 +124,6 @@ struct TodoRow: View {
                 }
             }
             .overlay { shimmerOverlay }
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) { model.editing = item.id }
     }
 
     private var editor: some View {

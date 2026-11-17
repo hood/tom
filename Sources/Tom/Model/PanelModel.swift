@@ -1,17 +1,13 @@
 import SwiftUI
 
-struct Shockwave: Identifiable {
-    let id = UUID()
-    let center: CGPoint
-    let color: Color
-}
-
 @MainActor @Observable
 final class PanelModel {
     let store: TodoStore
     let settings: AppSettings
 
     var expanded = false
+    /// 0 -> 1 after each open: drives the energy wash and the staggered reveal.
+    var bloom: CGFloat = 0
     var isOpen = false
     var geometry = PanelGeometry()
     var contentHeight: CGFloat = 220
@@ -19,7 +15,6 @@ final class PanelModel {
     var editing: UUID?
     var completing: Set<UUID> = []
     var burning: Set<UUID> = []
-    var shockwaves: [Shockwave] = []
     var justAdded: UUID?
     var showDone = false
     var focusInput = 0
@@ -90,7 +85,7 @@ final class PanelModel {
         SoundFX.shared.add(enabled: settings.soundOn)
     }
 
-    /// Check -> chime + shockwave -> cinematic disintegration -> collapse.
+    /// Check + click -> pixel pop from the dot -> collapse.
     func complete(_ id: UUID) {
         guard !completing.contains(id),
               let item = store.items.first(where: { $0.id == id }), item.completedAt == nil else { return }
@@ -98,12 +93,7 @@ final class PanelModel {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.5)) { _ = completing.insert(id) }
         SoundFX.shared.done(enabled: settings.soundOn)
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
-        if let f = rowFrames[id] {
-            let wave = Shockwave(center: CGPoint(x: f.minX + 22, y: f.midY), color: accentNow)
-            shockwaves.append(wave)
-            after(1.0) { [weak self] in self?.shockwaves.removeAll { $0.id == wave.id } }
-        }
-        after(0.26) { [weak self] in self?.disintegrate(item, accent: accentNow) }
+        after(0.1) { [weak self] in self?.disintegrate(item, accent: accentNow) }
     }
 
     private func disintegrate(_ item: TodoItem, accent: Color) {
@@ -116,7 +106,7 @@ final class PanelModel {
             if let cg = r.cgImage { overlay.burst(image: cg, frame: f, scale: backingScale) }
         }
         burning.insert(item.id)
-        after(0.7) { [weak self] in
+        after(0.3) { [weak self] in
             guard let self else { return }
             if selection == item.id { selection = neighbor(of: item.id) }
             withAnimation(.spring(response: 0.5, dampingFraction: 0.82)) {

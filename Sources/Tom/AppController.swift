@@ -108,16 +108,15 @@ final class AppController {
         model.backingScale = panel.backingScaleFactor
 
         orb.setPanelOpen(true)
-        SoundFX.shared.warmUp()
         panel.orderFrontRegardless()
         panel.makeKey()
         dbg("open: isKey=\(panel.isKeyWindow) active=\(NSApp.isActive) screen=\(panel.screen?.localizedName ?? "nil")")
 
-        after(0.016) { [weak self] in
-            guard let self, self.isOpen else { return }
-            withAnimation(.spring(response: 0.55, dampingFraction: 0.7)) { self.model.expanded = true }
-            self.model.focusInput += 1
-        }
+        withAnimation(.spring(duration: 0.2, bounce: 0.05)) { model.expanded = true }
+        withAnimation(.easeOut(duration: 0.55)) { model.bloom = 1 }
+        model.focusInput += 1
+        // starting the audio engine can block for a moment: do it after the panel is on screen
+        after(0.05) { SoundFX.shared.warmUp() }
     }
 
     func close() {
@@ -125,12 +124,13 @@ final class AppController {
         isOpen = false
         lastClose = CACurrentMediaTime()
         model.editing = nil
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.9), completionCriteria: .logicallyComplete) {
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.95), completionCriteria: .logicallyComplete) {
             model.expanded = false
         } completion: { [weak self] in
             guard let self, !self.isOpen else { return }
             self.panel.orderOut(nil)
             self.model.isOpen = false
+            self.model.bloom = 0
             self.orb.setPanelOpen(false)
             SoundFX.shared.coolDown()
         }

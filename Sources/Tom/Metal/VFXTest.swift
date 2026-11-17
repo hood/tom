@@ -16,10 +16,10 @@ enum VFXTest {
         }
         save(hstack(orbs, bg: bg), "\(outDir)/orbs.png")
 
-        let morphs = [0.0, 0.3, 0.6, 1.0].map { m in
-            renderPlasma(size: CGSize(width: 180, height: 140), scale: 2,
-                         u: PlasmaUniforms(time: 3, fullness: 0.6, morph: Float(m), radiusMin: 1, radiusMax: 1,
-                                           glow: 0, intensity: 0.6))
+        let morphs = [0.0, 0.08, 0.18, 0.32, 0.5, 0.75].map { b in
+            renderPlasma(size: CGSize(width: 240, height: 200), scale: 1,
+                         u: PlasmaUniforms(time: 3, fullness: 0.8, morph: Float(b), radiusMin: 1, radiusMax: 1,
+                                           glow: 0, intensity: 0, wash: 1, centerX: 228, centerY: 12, orbPts: 9))
         }
         save(hstack(morphs, bg: bg), "\(outDir)/morph.png")
 
@@ -30,7 +30,7 @@ enum VFXTest {
         r.scale = 2
         guard let snap = r.cgImage else { print("snapshot failed"); return }
         let tex = MetalContext.shared.texture(from: snap)!
-        let frames = [0.0, 0.15, 0.3, 0.45, 0.65, 0.9, 1.3].map { t -> CGImage in
+        let frames = [0.0, 0.08, 0.16, 0.25, 0.35, 0.5, 0.7].map { t -> CGImage in
             renderParticles(tex: tex, time: Float(t), view: CGSize(width: 420, height: 200),
                             frame: CGRect(x: 40, y: 120, width: 328, height: 42), scale: 2)
         }

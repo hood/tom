@@ -13,10 +13,10 @@ final class SoundFX {
     private var running = false
     private var stopTask: Task<Void, Never>?
 
-    /// Complete: rounder, a touch lower.
-    private lazy var doneBuf = makeBuffer(Self.bubblePop(sr: sr, startHz: 620, endHz: 170, decay: 75, click: 0.18))
-    /// Add: smaller, higher, quieter.
-    private lazy var addBuf = makeBuffer(Self.bubblePop(sr: sr, startHz: 900, endHz: 320, decay: 110, click: 0.1))
+    /// Complete: press + release, like a mechanical switch.
+    private lazy var doneBuf = makeBuffer(Self.click(sr: sr, pitch: 1.0, release: true))
+    /// Add: single, slightly higher tick.
+    private lazy var addBuf = makeBuffer(Self.click(sr: sr, pitch: 1.25, release: false))
 
     private init() {
         format = AVAudioFormat(standardFormatWithSampleRate: sr, channels: 2)!
@@ -48,8 +48,8 @@ final class SoundFX {
         }
     }
 
-    func done(enabled: Bool) { if enabled { play(doneBuf, volume: 0.22) } }
-    func add(enabled: Bool) { if enabled { play(addBuf, volume: 0.12) } }
+    func done(enabled: Bool) { if enabled { play(doneBuf, volume: 0.12) } }
+    func add(enabled: Bool) { if enabled { play(addBuf, volume: 0.07) } }
 
     private func play(_ buf: AVAudioPCMBuffer, volume: Float) {
         warmUp()
@@ -73,26 +73,33 @@ final class SoundFX {
         return b
     }
 
-    /// Bubble pop: a sine that drops in pitch fast, a soft wet click on top, all low-passed.
-    static func bubblePop(sr: Double, startHz: Double, endHz: Double, decay: Double, click: Double) -> [Float] {
-        let n = Int(sr * 0.07)
+    /// Dry mechanical click: noise transient + two fast-dying modes + a tiny body thump. ~25ms, no tail.
+    static func click(sr: Double, pitch: Double, release: Bool) -> [Float] {
+        let n = Int(sr * (release ? 0.06 : 0.03))
         var out = [Float](repeating: 0, count: n)
-        var phase = 0.0, lp = 0.0
         var seed: UInt64 = 0x2545_F491_4F6C_DD1D
-        let a = 1 - exp(-2 * .pi * 2400 / sr) // one-pole low-pass ~2.4 kHz: no piercing highs
-        for i in 0..<n {
-            let t = Double(i) / sr
-            let f = endHz + (startHz - endHz) * exp(-t * 95)
-            phase += 2 * .pi * f / sr
-            let attack = 1 - exp(-t / 0.0012)
-            var s = sin(phase) * attack * exp(-t * decay)
+        func noise() -> Double {
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
-            let noise = Double(seed >> 11) / Double(1 << 53) * 2 - 1
-            s += noise * click * exp(-t * 900)
-            lp += a * (s - lp)
-            out[i] = Float(lp)
+            return Double(seed >> 11) / Double(1 << 53) * 2 - 1
         }
-        let fadeN = Int(sr * 0.008)
+        func strike(at t0: Double, gain: Double, tune: Double) {
+            let s0 = Int(t0 * sr)
+            for i in s0..<n {
+                let t = Double(i - s0) / sr
+                var v = noise() * exp(-t * 3200) * 0.7
+                v += sin(2 * .pi * 1850 * tune * t) * exp(-t * 520)
+                v += 0.55 * sin(2 * .pi * 3050 * tune * t) * exp(-t * 700)
+                v += 0.35 * sin(2 * .pi * 170 * t) * exp(-t * 160)
+                out[i] += Float(v * gain)
+            }
+        }
+        strike(at: 0, gain: 1, tune: pitch)
+        if release { strike(at: 0.032, gain: 0.45, tune: pitch * 1.12) }
+        // gentle low-pass (~6 kHz) to keep it from getting sharp
+        let a = 1 - exp(-2 * .pi * 6000 / sr)
+        var lp = 0.0
+        for i in out.indices { lp += a * (Double(out[i]) - lp); out[i] = Float(lp) }
+        let fadeN = Int(sr * 0.004)
         for k in 0..<fadeN { out[n - 1 - k] *= Float(k) / Float(fadeN) }
         let peak = out.map(abs).max() ?? 1
         return out.map { $0 / peak * 0.7 }

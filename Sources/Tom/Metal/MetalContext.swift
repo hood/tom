@@ -5,7 +5,9 @@ import QuartzCore
 struct PlasmaUniforms {
     var time: Float = 0, fullness: Float = 0, hover: Float = 0, morph: Float = 0
     var sizeX: Float = 1, sizeY: Float = 1, radiusMin: Float = 0.3, radiusMax: Float = 0.4
-    var glow: Float = 1, intensity: Float = 0.5, pad: Float = 0, pulse: Float = 0
+    var glow: Float = 1, intensity: Float = 0.5, wash: Float = 0, pulse: Float = 0
+    /// Orb center in view points (top-left origin); negative = view center.
+    var centerX: Float = -1, centerY: Float = -1, orbPts: Float = 0, pad: Float = 0
 }
 
 struct ParticleUniforms {

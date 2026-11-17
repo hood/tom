@@ -7,19 +7,20 @@ struct PanelContent: View {
     @FocusState private var inputFocused: Bool
 
     private var store: TodoStore { model.store }
+    private var up: Bool { model.geometry.growsUp }
 
     var body: some View {
         let accent = model.accent
         VStack(alignment: .leading, spacing: 10) {
-            header(accent)
-            input(accent)
+            header(accent).reveal(model.bloom, 0, fromBelow: up)
+            input(accent).reveal(model.bloom, 1, fromBelow: up)
             if store.active.isEmpty {
-                emptyState(accent)
+                emptyState(accent).reveal(model.bloom, 2, fromBelow: up)
             } else {
                 list(accent)
             }
-            doneSection(accent)
-            hints
+            doneSection(accent).reveal(model.bloom, store.activeCount + 2, fromBelow: up)
+            hints.reveal(model.bloom, store.activeCount + 3, fromBelow: up)
         }
         .padding(12)
         .frame(width: PanelGeometry.width)
@@ -88,8 +89,9 @@ struct PanelContent: View {
         let maxList = max(120, model.geometry.maxHeight - 200)
         return ScrollView(.vertical) {
             VStack(spacing: 2) {
-                ForEach(store.active) { item in
+                ForEach(Array(store.active.enumerated()), id: \.element.id) { i, item in
                     TodoRow(item: item, model: model, accent: accent)
+                        .reveal(model.bloom, min(i, 10) + 2, fromBelow: up)
                         .transition(.asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity).combined(with: .scale(scale: 0.9, anchor: .top)),
                             removal: .opacity.combined(with: .scale(scale: 0.96))))

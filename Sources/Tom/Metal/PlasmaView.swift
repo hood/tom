@@ -9,6 +9,9 @@ final class PlasmaMTKView: MetalLayerView {
     var radiusMax: Float = 0.4
     var glow: Float = 1
     var intensity: Float = 0.5
+    var wash: Float = 0
+    var center = CGPoint(x: -1, y: -1)
+    var orbPts: Float = 0
     var lastPulseToken = 0
 
     private var fullness: Float = -1
@@ -41,7 +44,8 @@ final class PlasmaMTKView: MetalLayerView {
         var u = PlasmaUniforms(
             time: MetalContext.time, fullness: fullness, hover: hover, morph: morph,
             sizeX: Float(bounds.width), sizeY: Float(bounds.height), radiusMin: radiusMin, radiusMax: radiusMax,
-            glow: glow, intensity: intensity, pulse: pulse)
+            glow: glow, intensity: intensity, wash: wash, pulse: pulse,
+            centerX: Float(center.x), centerY: Float(center.y), orbPts: orbPts)
         enc.setRenderPipelineState(MetalContext.shared.plasmaPipeline)
         enc.setFragmentBytes(&u, length: MemoryLayout<PlasmaUniforms>.stride, index: 0)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
@@ -60,6 +64,10 @@ struct PlasmaView: NSViewRepresentable {
     var glow: Bool = true
     var intensity: Double = 0.5
     var running: Bool = true
+    /// Panel-open energy wash bursting from `center` (points, top-left origin).
+    var wash: Bool = false
+    var center: CGPoint = CGPoint(x: -1, y: -1)
+    var orbRadius: CGFloat = 0
     var fps: Int = 60
     var pulseToken: Int = 0
 
@@ -73,6 +81,9 @@ struct PlasmaView: NSViewRepresentable {
         v.radiusMax = Float(radius.upperBound)
         v.glow = glow ? 1 : 0
         v.intensity = Float(intensity)
+        v.wash = wash ? 1 : 0
+        v.center = center
+        v.orbPts = Float(orbRadius)
         if v.preferredFramesPerSecond != fps { v.preferredFramesPerSecond = fps }
         if v.isPaused == running { v.isPaused = !running }
         if pulseToken != v.lastPulseToken { v.lastPulseToken = pulseToken; v.firePulse() }

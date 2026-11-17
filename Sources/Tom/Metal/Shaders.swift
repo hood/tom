@@ -48,7 +48,8 @@ static float3 palette(float f) {
 struct PlasmaUniforms {
     float time; float fullness; float hover; float morph;
     float sizeX; float sizeY; float radiusMin; float radiusMax;
-    float glow; float intensity; float pad; float pulse;
+    float glow; float intensity; float wash; float pulse;
+    float centerX; float centerY; float orbPts; float pad;
 };
 
 struct VOut { float4 pos [[position]]; float2 uv; };
@@ -64,14 +65,18 @@ vertex VOut plasma_vertex(uint vid [[vertex_id]]) {
 fragment float4 plasma_fragment(VOut in [[stage_in]], constant PlasmaUniforms& u [[buffer(0)]]) {
     float2 sz = float2(u.sizeX, u.sizeY);
     float m = min(sz.x, sz.y);
-    float2 p = in.uv * sz / m;
+    float2 pts = float2((in.uv.x * 0.5 + 0.5) * sz.x, (0.5 - in.uv.y * 0.5) * sz.y);
+    float2 c = u.centerX >= 0.0 ? float2(u.centerX, u.centerY) : sz * 0.5;
+    float2 p = (pts - c) * float2(1.0, -1.0) / (0.5 * m);
     float t = u.time;
+    float bloom = clamp(u.morph, 0.0, 1.0);
     float f = clamp(u.fullness, 0.0, 1.0);
     float3 core = palette(f);
     float speed = 0.45 + 1.6 * f;
 
     // ---- orb: a glass sphere filling up with boiling plasma
     float R = mix(u.radiusMin, u.radiusMax, f) * (1.0 + 0.1 * u.hover + 0.08 * u.pulse);
+    if (u.wash > 0.5) R = u.orbPts / (0.5 * m) * (1.0 + 0.9 * smoothstep(0.0, 0.3, bloom));
     float2 q = p / R;
     float r = length(q);
     float level = mix(-1.08, 0.94, f);
@@ -102,6 +107,27 @@ fragment float4 plasma_fragment(VOut in [[stage_in]], constant PlasmaUniforms& u
     float glowA = u.glow * exp(-max(r - 1.0, 0.0) * 3.0) * (0.22 + 0.6 * f + 0.35 * u.hover) * breathe * (1.0 - sphere);
     float3 orbRGB = inside * sphere + core * glowA;
     float orbA = sphere + glowA * 0.5;
+
+    // ---- energy wash: the orb bursts into the panel as a wavefront and dies out
+    if (u.wash > 0.5) {
+        float2 rel = pts - c;
+        float len = length(rel);
+        float2 dirv = rel / max(len, 0.001);
+        // organic, liquid edge instead of a perfect circle (direction-based noise: no seam)
+        float d = len + (fbm(dirv * 2.4 + float2(t * 0.9, -t * 0.7)) - 0.5) * 34.0 * smoothstep(0.0, 0.2, bloom);
+        float maxD = length(max(c, sz - c));
+        float e = 1.0 - pow(1.0 - bloom, 3.0);
+        float front = mix(u.orbPts, maxD * 1.08, e);
+        float behind = 1.0 - smoothstep(front - 2.0, front + 2.0, d);
+        float wn = fbm(pts / 60.0 + float2(t * 0.5, -t * 0.7) + (pts - c) / max(front, 1.0) * 1.8);
+        float ring = exp(-abs(d - front) / 7.0) * (0.6 + 0.6 * wn);
+        float energy = pow(1.0 - bloom, 1.6);
+        float3 wcol = (core * (behind * (0.12 + 0.6 * wn) + ring * 1.0) + float3(ring * 0.25)) * energy;
+        float wa = (behind * 0.1 + ring * 0.3) * energy;
+        float orbFade = 1.0 - smoothstep(0.0, 0.35, bloom);
+        float oa = orbA * orbFade;
+        return float4(orbRGB * orbFade + wcol * (1.0 - oa), oa + wa * (1.0 - oa));
+    }
 
     // ---- aurora: what the orb dissolves into behind the panel
     float2 ap = in.uv * sz / 240.0;
@@ -150,35 +176,36 @@ vertex POut particle_vertex(uint vid [[vertex_id]],
     float h3 = hash11(fid * 2.11 + u.seed * 7.7);
     float2 origin = float2(u.originX, u.originY) + uv * float2(u.rowW, u.rowH);
 
-    // ragged burn front sweeping left -> right
-    float ragged = vnoise(origin * 0.07 + u.seed) * 0.26 + h1 * 0.05;
-    float delay = uv.x * 0.62 + ragged;
+    // ripple outward from the checkbox you clicked
+    float2 center = float2(u.originX + 16.0, u.originY + u.rowH * 0.5);
+    float2 fromC = origin - center;
+    float dist = length(fromC);
+    float delay = dist / max(u.rowW, 1.0) * 0.3 + h1 * 0.04;
     float lt = u.time - delay;
     float active = step(0.0, lt);
     lt = max(lt, 0.0);
-    float life = 0.75 + h2 * 0.75;
+    float life = 0.32 + h2 * 0.26;
     float p = clamp(lt / life, 0.0, 1.0);
 
-    // ash drifting up and right with turbulence
-    float2 dir = normalize(float2(0.35 + h3 * 1.1, -0.9 - h1 * 0.9));
-    float speed = 25.0 + h2 * 115.0;
-    float2 pos = origin + dir * speed * lt + float2(22.0, -85.0) * lt * lt;
-    pos.x += sin(origin.y * 0.2 + lt * 6.0 + h3 * 6.283) * 11.0 * p;
-    pos.y += cos(origin.x * 0.07 + lt * 4.5 + h1 * 6.283) * 7.0 * p;
+    // pop: random direction biased away from the click, hard drag so it settles instead of drifting
+    float ang = h3 * 6.2831853;
+    float2 rnd = float2(cos(ang), sin(ang));
+    float2 radial = dist > 0.5 ? fromC / dist : rnd;
+    float2 dir = normalize(mix(rnd, radial, 0.2));
+    float speed = 50.0 + h2 * 130.0;
+    float drag = 7.0;
+    float2 pos = origin + dir * speed * (1.0 - exp(-lt * drag)) / drag;
 
-    float heat = active * smoothstep(0.0, 0.05, p) * (1.0 - smoothstep(0.05, 0.6, p));
-    float pre = (1.0 - active) * smoothstep(-0.14, 0.0, u.time - delay);
-    float3 ember = mix(float3(1.0, 0.30, 0.62), float3(1.0, 0.74, 0.30), h3);
+    float heat = active * (1.0 - smoothstep(0.0, 0.35, p));
+    float3 ember = mix(float3(1.0, 0.45, 0.7), float3(1.0, 0.8, 0.45), h3);
     float3 base = c.rgb / max(c.a, 0.001);
-    float glowAmt = clamp(max(heat, pre * 0.75), 0.0, 1.0);
-    float3 col = mix(base, ember * 1.9, glowAmt);
-    float alpha = c.a * (1.0 - smoothstep(0.25, 1.0, p));
-    // emissive pixels carry less alpha so they add light
-    o.color = float4(col * alpha, alpha * (1.0 - 0.8 * glowAmt));
+    float glowAmt = clamp(heat * 0.6, 0.0, 1.0);
+    float3 col = mix(base, ember * 1.5, glowAmt);
+    float alpha = c.a * (1.0 - smoothstep(0.2, 1.0, p));
+    o.color = float4(col * alpha, alpha * (1.0 - 0.7 * glowAmt));
 
     float texel = u.pointScale / u.texScale;
-    float big = step(0.985, h1) * 2.5;
-    o.size = texel * (1.08 + active * (1.0 + h2 * 2.2 + big) * (1.0 - p * 0.5));
+    o.size = texel * (1.08 + active * (0.6 + h2 * 1.6) * (1.0 - p));
     o.pos = float4(pos.x / u.viewW * 2.0 - 1.0, 1.0 - pos.y / u.viewH * 2.0, 0.0, 1.0);
     o.shape = active;
     return o;

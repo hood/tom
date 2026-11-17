@@ -3,7 +3,8 @@ import MetalKit
 
 /// Full-window overlay that turns a snapshot of a row into ~50k pixels of burning ash.
 final class ParticleOverlayView: MetalLayerView {
-    static let lifetime: Double = 2.4
+    static let speed: Double = 1.0
+    static let lifetime: Double = 1.0
 
     struct Burst {
         let texture: MTLTexture
@@ -39,7 +40,7 @@ final class ParticleOverlayView: MetalLayerView {
         let pointScale = Float(drawableSize.width / bounds.width)
         enc.setRenderPipelineState(MetalContext.shared.particlePipeline)
         for b in bursts {
-            var u = Self.uniforms(b, time: Float(now - b.start), view: bounds.size, pointScale: pointScale)
+            var u = Self.uniforms(b, time: Float((now - b.start) * Self.speed), view: bounds.size, pointScale: pointScale)
             enc.setVertexBytes(&u, length: MemoryLayout<ParticleUniforms>.stride, index: 0)
             enc.setVertexTexture(b.texture, index: 0)
             enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: b.texture.width * b.texture.height)
