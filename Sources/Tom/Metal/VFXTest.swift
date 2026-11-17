@@ -23,6 +23,47 @@ enum VFXTest {
         }
         save(hstack(morphs, bg: bg), "\(outDir)/morph.png")
 
+        // perf-mode look
+        let perfOrbs = [0.0, 0.25, 0.5, 0.75, 1.0].map { f in
+            renderPlasma(size: CGSize(width: 56, height: 56), scale: 2,
+                         u: PlasmaUniforms(time: 3, fullness: Float(f), radiusMin: 15 / 56, radiusMax: 22 / 56, glow: 1, quality: 0))
+        }
+        save(hstack(perfOrbs, bg: bg), "\(outDir)/orbs-perf.png")
+        let perfMorphs = [0.0, 0.18, 0.32, 0.5].map { b in
+            renderPlasma(size: CGSize(width: 240, height: 200), scale: 1,
+                         u: PlasmaUniforms(time: 3, fullness: 0.8, morph: Float(b), radiusMin: 1, radiusMax: 1,
+                                           glow: 0, intensity: 0, wash: 1, centerX: 228, centerY: 12, orbPts: 9, quality: 0))
+        }
+        save(hstack(perfMorphs, bg: bg), "\(outDir)/morph-perf.png")
+
+        // GPU cost: panel-sized wash frame and an orb, candy (2x) vs perf (1x)
+        func gpuMs(size: CGSize, scale: CGFloat, u: PlasmaUniforms, frames: Int = 120) -> Double {
+            let t = target(CGSize(width: size.width * scale, height: size.height * scale))
+            var u = u
+            u.sizeX = Float(size.width); u.sizeY = Float(size.height)
+            var total = 0.0
+            for i in 0..<frames {
+                u.time = Float(i) / 60
+                let cb = MetalContext.shared.queue.makeCommandBuffer()!
+                let enc = cb.makeRenderCommandEncoder(descriptor: pass(t))!
+                enc.setRenderPipelineState(MetalContext.shared.plasmaPipeline)
+                enc.setFragmentBytes(&u, length: MemoryLayout<PlasmaUniforms>.stride, index: 0)
+                enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+                enc.endEncoding()
+                cb.commit(); cb.waitUntilCompleted()
+                if i >= 10 { total += cb.gpuEndTime - cb.gpuStartTime }
+            }
+            return total / Double(frames - 10) * 1000
+        }
+        let panelSize = CGSize(width: 360, height: 480)
+        let wash = PlasmaUniforms(fullness: 0.8, morph: 0.3, radiusMin: 1, radiusMax: 1, glow: 0, intensity: 0,
+                                  wash: 1, centerX: 350, centerY: 10, orbPts: 9)
+        var washPerf = wash; washPerf.quality = 0
+        let orb = PlasmaUniforms(fullness: 0.8, radiusMin: 15 / 56, radiusMax: 22 / 56, glow: 1)
+        var orbPerf = orb; orbPerf.quality = 0
+        print(String(format: "GPU ms/frame  wash candy@2x %.3f  perf@1x %.3f", gpuMs(size: panelSize, scale: 2, u: wash), gpuMs(size: panelSize, scale: 1, u: washPerf)))
+        print(String(format: "GPU ms/frame  orb  candy@2x %.3f  perf@1x %.3f", gpuMs(size: CGSize(width: 56, height: 56), scale: 2, u: orb), gpuMs(size: CGSize(width: 56, height: 56), scale: 1, u: orbPerf)))
+
         let accent = Palette.color(0.5)
         let row = TodoRowContent(text: "reply to the infra thread before standup", checked: true, accent: accent)
             .frame(width: 328, height: 42).environment(\.colorScheme, .dark)
@@ -35,6 +76,11 @@ enum VFXTest {
                             frame: CGRect(x: 40, y: 120, width: 328, height: 42), scale: 2)
         }
         save(vstack(frames, bg: bg), "\(outDir)/dissolve.png")
+        let perfFrames = [0.0, 0.16, 0.35].map { t -> CGImage in
+            renderParticles(tex: tex, time: Float(t), view: CGSize(width: 420, height: 200),
+                            frame: CGRect(x: 40, y: 120, width: 328, height: 42), scale: 2, stride: 2)
+        }
+        save(vstack(perfFrames, bg: bg), "\(outDir)/dissolve-perf.png")
         let store = TodoStore()
         let model = PanelModel(store: store, settings: AppSettings())
         let panel = ZStack {
@@ -78,16 +124,16 @@ enum VFXTest {
         return image(t)
     }
 
-    static func renderParticles(tex: MTLTexture, time: Float, view: CGSize, frame: CGRect, scale: CGFloat) -> CGImage {
+    static func renderParticles(tex: MTLTexture, time: Float, view: CGSize, frame: CGRect, scale: CGFloat, stride: Int = 1) -> CGImage {
         let t = target(CGSize(width: view.width * scale, height: view.height * scale))
-        let b = ParticleOverlayView.Burst(texture: tex, frame: frame, start: 0, seed: 7, texScale: Float(scale))
+        let b = ParticleOverlayView.Burst(texture: tex, frame: frame, start: 0, seed: 7, texScale: Float(scale), stride: stride)
         var u = ParticleOverlayView.uniforms(b, time: time, view: view, pointScale: Float(scale))
         let cb = MetalContext.shared.queue.makeCommandBuffer()!
         let enc = cb.makeRenderCommandEncoder(descriptor: pass(t))!
         enc.setRenderPipelineState(MetalContext.shared.particlePipeline)
         enc.setVertexBytes(&u, length: MemoryLayout<ParticleUniforms>.stride, index: 0)
         enc.setVertexTexture(tex, index: 0)
-        enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: tex.width * tex.height)
+        enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: b.particleCount)
         enc.endEncoding()
         cb.commit(); cb.waitUntilCompleted()
         return image(t)

@@ -45,7 +45,8 @@ final class PlasmaMTKView: MetalLayerView {
             time: MetalContext.time, fullness: fullness, hover: hover, morph: morph,
             sizeX: Float(bounds.width), sizeY: Float(bounds.height), radiusMin: radiusMin, radiusMax: radiusMax,
             glow: glow, intensity: intensity, wash: wash, pulse: pulse,
-            centerX: Float(center.x), centerY: Float(center.y), orbPts: orbPts)
+            centerX: Float(center.x), centerY: Float(center.y), orbPts: orbPts,
+            quality: RenderQuality.isPerformance ? 0 : 1)
         enc.setRenderPipelineState(MetalContext.shared.plasmaPipeline)
         enc.setFragmentBytes(&u, length: MemoryLayout<PlasmaUniforms>.stride, index: 0)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)

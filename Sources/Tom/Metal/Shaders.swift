@@ -22,15 +22,17 @@ static float vnoise(float2 p) {
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
-static float fbm(float2 p) {
+static float fbmN(float2 p, int octaves) {
     float v = 0.0, a = 0.5;
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < octaves; i++) {
         v += a * vnoise(p);
         p = p * 2.03 + float2(1.7, 9.2);
         a *= 0.5;
     }
     return v;
 }
+
+static float fbm(float2 p) { return fbmN(p, 5); }
 
 // cyan -> violet -> magenta -> red, must match Palette.swift
 static float3 palette(float f) {
@@ -49,7 +51,7 @@ struct PlasmaUniforms {
     float time; float fullness; float hover; float morph;
     float sizeX; float sizeY; float radiusMin; float radiusMax;
     float glow; float intensity; float wash; float pulse;
-    float centerX; float centerY; float orbPts; float pad;
+    float centerX; float centerY; float orbPts; float quality;
 };
 
 struct VOut { float4 pos [[position]]; float2 uv; };
@@ -70,6 +72,9 @@ fragment float4 plasma_fragment(VOut in [[stage_in]], constant PlasmaUniforms& u
     float2 p = (pts - c) * float2(1.0, -1.0) / (0.5 * m);
     float t = u.time;
     float bloom = clamp(u.morph, 0.0, 1.0);
+    // candy: 5-octave fbm + domain warp. perf: 2 octaves + a cheap sine warp.
+    bool hq = u.quality > 0.5;
+    int oct = hq ? 5 : 2;
     float f = clamp(u.fullness, 0.0, 1.0);
     float3 core = palette(f);
     float speed = 0.45 + 1.6 * f;
@@ -87,8 +92,10 @@ fragment float4 plasma_fragment(VOut in [[stage_in]], constant PlasmaUniforms& u
     float liquid = smoothstep(surface + edgeW * 1.5, surface - edgeW * 1.5, q.y);
 
     float2 w = q * 1.4;
-    float2 warp = float2(fbm(w + float2(0.0, t * 0.35 * speed)), fbm(w + float2(5.2, -t * 0.3 * speed)));
-    float n = fbm(w * 1.3 + warp * 2.2 + float2(t * 0.15, -t * 0.45 * speed));
+    float2 warp = hq
+        ? float2(fbm(w + float2(0.0, t * 0.35 * speed)), fbm(w + float2(5.2, -t * 0.3 * speed)))
+        : float2(sin(w.y * 2.1 + t * speed), cos(w.x * 1.7 - t * speed)) * 0.3 + 0.5;
+    float n = fbmN(w * 1.3 + warp * 2.2 + float2(t * 0.15, -t * 0.45 * speed), oct);
     float fil = pow(1.0 - abs(n * 2.0 - 1.0), 7.0);
     float3 hotc = mix(core, float3(1.0, 0.96, 0.92), 0.5);
     float3 deep = core * 0.16 + float3(0.02, 0.0, 0.04);
@@ -114,12 +121,12 @@ fragment float4 plasma_fragment(VOut in [[stage_in]], constant PlasmaUniforms& u
         float len = length(rel);
         float2 dirv = rel / max(len, 0.001);
         // organic, liquid edge instead of a perfect circle (direction-based noise: no seam)
-        float d = len + (fbm(dirv * 2.4 + float2(t * 0.9, -t * 0.7)) - 0.5) * 34.0 * smoothstep(0.0, 0.2, bloom);
+        float d = len + (fbmN(dirv * 2.4 + float2(t * 0.9, -t * 0.7), oct) - 0.5) * 34.0 * smoothstep(0.0, 0.2, bloom);
         float maxD = length(max(c, sz - c));
         float e = 1.0 - pow(1.0 - bloom, 3.0);
         float front = mix(u.orbPts, maxD * 1.08, e);
         float behind = 1.0 - smoothstep(front - 2.0, front + 2.0, d);
-        float wn = fbm(pts / 60.0 + float2(t * 0.5, -t * 0.7) + (pts - c) / max(front, 1.0) * 1.8);
+        float wn = fbmN(pts / 60.0 + float2(t * 0.5, -t * 0.7) + (pts - c) / max(front, 1.0) * 1.8, oct);
         float ring = exp(-abs(d - front) / 7.0) * (0.6 + 0.6 * wn);
         float energy = pow(1.0 - bloom, 1.6);
         float3 wcol = (core * (behind * (0.12 + 0.6 * wn) + ring * 1.0) + float3(ring * 0.25)) * energy;
@@ -148,6 +155,7 @@ struct ParticleUniforms {
     float originX; float originY; float rowW; float rowH;
     float viewW; float viewH; float texW; float texH;
     float time; float seed; float pointScale; float texScale;
+    float stride; float pad0; float pad1; float pad2;
 };
 
 struct POut {
@@ -161,9 +169,10 @@ vertex POut particle_vertex(uint vid [[vertex_id]],
                             constant ParticleUniforms& u [[buffer(0)]],
                             texture2d<float> tex [[texture(0)]]) {
     POut o;
-    uint gw = uint(u.texW);
-    float2 cell = float2(float(vid % gw), float(vid / gw));
-    float2 uv = (cell + 0.5) / float2(u.texW, u.texH);
+    // stride 2 = one particle per 2x2 texel block (perf mode)
+    uint gw = uint(ceil(u.texW / u.stride));
+    float2 cell = float2(float(vid % gw), float(vid / gw)) * u.stride;
+    float2 uv = (cell + 0.5 * u.stride) / float2(u.texW, u.texH);
     constexpr sampler s(coord::normalized, filter::nearest, address::clamp_to_edge);
     float4 c = tex.sample(s, uv, level(0.0));
     if (c.a < 0.02) {
@@ -204,7 +213,7 @@ vertex POut particle_vertex(uint vid [[vertex_id]],
     float alpha = c.a * (1.0 - smoothstep(0.2, 1.0, p));
     o.color = float4(col * alpha, alpha * (1.0 - 0.7 * glowAmt));
 
-    float texel = u.pointScale / u.texScale;
+    float texel = u.pointScale / u.texScale * u.stride;
     o.size = texel * (1.08 + active * (0.6 + h2 * 1.6) * (1.0 - p));
     o.pos = float4(pos.x / u.viewW * 2.0 - 1.0, 1.0 - pos.y / u.viewH * 2.0, 0.0, 1.0);
     o.shape = active;

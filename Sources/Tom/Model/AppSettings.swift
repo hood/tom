@@ -22,6 +22,12 @@ enum OrbPlacement: String, CaseIterable, Identifiable, Codable {
     var growsUp: Bool { self == .bottomLeft || self == .bottomRight }
 }
 
+enum VisualQuality: String, CaseIterable, Identifiable {
+    case candy, performance
+    var id: String { rawValue }
+    var title: String { self == .candy ? "Candy" : "Performance" }
+}
+
 struct HotKeyCombo: Codable, Equatable {
     var keyCode: UInt32
     var modifiers: UInt32
@@ -43,6 +49,9 @@ final class AppSettings {
     var hidden: Bool {
         didSet { defaults.set(hidden, forKey: "hidden"); onLayoutChange?() }
     }
+    var quality: VisualQuality {
+        didSet { defaults.set(quality.rawValue, forKey: "quality"); RenderQuality.isPerformance = quality == .performance }
+    }
     var soundOn: Bool {
         didSet { defaults.set(soundOn, forKey: "soundOn") }
     }
@@ -63,6 +72,9 @@ final class AppSettings {
         placement = OrbPlacement(rawValue: d.string(forKey: "placement") ?? "") ?? .topRight
         hidden = d.bool(forKey: "hidden")
         soundOn = d.object(forKey: "soundOn") as? Bool ?? true
+        let q = VisualQuality(rawValue: d.string(forKey: "quality") ?? "") ?? .candy
+        quality = q
+        RenderQuality.isPerformance = q == .performance
         let fa = d.integer(forKey: "fullAt")
         fullAt = fa == 0 ? 8 : fa
         if let data = d.data(forKey: "hotKey"), let hk = try? JSONDecoder().decode(HotKeyCombo.self, from: data) {

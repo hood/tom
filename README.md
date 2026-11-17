@@ -21,7 +21,7 @@ just vfx        # render orb/dissolve frames to build/vfx for shader tweaking
 | `esc` / click away | close |
 | `⌘,` | settings |
 
-Settings: orb position (menu bar or any of the 4 corners), invisible mode, hotkey, "full at" count, sounds, launch at login.
+Settings: orb position (menu bar or any of the 4 corners), invisible mode, hotkey, "full at" count, visuals (Candy / Performance), sounds, launch at login.
 
 Data: `~/Library/Application Support/tom/items.json`. Done items clear at midnight.
 

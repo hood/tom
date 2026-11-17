@@ -52,6 +52,16 @@ struct SettingsView: View {
                             Text("\(settings.fullAt) items").foregroundStyle(accent).bold()
                         }
                     }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("Visuals", selection: $settings.quality) {
+                            ForEach(VisualQuality.allCases) { Text($0.title).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        Text(settings.quality == .candy
+                             ? "Full plasma, Retina resolution, up to 60fps."
+                             : "Lighter shaders, 1x resolution, 30fps. For older Macs.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Toggle("Sounds", isOn: $settings.soundOn)
                     Toggle("Launch at login", isOn: $launchAtLogin)
                         .onChange(of: launchAtLogin) { _, on in

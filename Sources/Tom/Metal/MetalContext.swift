@@ -7,13 +7,28 @@ struct PlasmaUniforms {
     var sizeX: Float = 1, sizeY: Float = 1, radiusMin: Float = 0.3, radiusMax: Float = 0.4
     var glow: Float = 1, intensity: Float = 0.5, wash: Float = 0, pulse: Float = 0
     /// Orb center in view points (top-left origin); negative = view center.
-    var centerX: Float = -1, centerY: Float = -1, orbPts: Float = 0, pad: Float = 0
+    var centerX: Float = -1, centerY: Float = -1, orbPts: Float = 0
+    /// 1 = candy, 0 = performance
+    var quality: Float = 1
 }
 
 struct ParticleUniforms {
     var originX: Float = 0, originY: Float = 0, rowW: Float = 0, rowH: Float = 0
     var viewW: Float = 1, viewH: Float = 1, texW: Float = 1, texH: Float = 1
     var time: Float = 0, seed: Float = 0, pointScale: Float = 2, texScale: Float = 2
+    var stride: Float = 1, pad0: Float = 0, pad1: Float = 0, pad2: Float = 0
+}
+
+/// Candy vs performance rendering, flipped live from Settings.
+@MainActor
+enum RenderQuality {
+    static let changed = Notification.Name("tom.renderQualityChanged")
+    static var isPerformance = false {
+        didSet { if oldValue != isPerformance { NotificationCenter.default.post(name: changed, object: nil) } }
+    }
+    /// Perf: 1x pixels and at most 30fps.
+    static func scale(for backing: CGFloat) -> CGFloat { isPerformance ? 1 : backing }
+    static func fps(_ preferred: Int) -> Int { isPerformance ? min(preferred, 30) : preferred }
 }
 
 @MainActor
@@ -95,6 +110,12 @@ class MetalLayerView: NSView {
         metalLayer.backgroundColor = .clear
         layer = metalLayer
         wantsLayer = true
+        NotificationCenter.default.addObserver(self, selector: #selector(qualityChanged), name: RenderQuality.changed, object: nil)
+    }
+
+    @objc private func qualityChanged() {
+        syncDrawableSize()
+        updateLink()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -120,7 +141,7 @@ class MetalLayerView: NSView {
     }
 
     private func syncDrawableSize() {
-        let scale = window?.backingScaleFactor ?? 2
+        let scale = RenderQuality.scale(for: window?.backingScaleFactor ?? 2)
         metalLayer.contentsScale = scale
         let px = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
         if metalLayer.drawableSize != px { metalLayer.drawableSize = px }
@@ -131,7 +152,7 @@ class MetalLayerView: NSView {
         link = nil
         guard window != nil, !isPaused else { return }
         let l = displayLink(target: self, selector: #selector(tick))
-        let fps = Float(preferredFramesPerSecond)
+        let fps = Float(RenderQuality.fps(preferredFramesPerSecond))
         l.preferredFrameRateRange = CAFrameRateRange(minimum: min(15, fps), maximum: fps, preferred: fps)
         l.add(to: .main, forMode: .common)
         link = l

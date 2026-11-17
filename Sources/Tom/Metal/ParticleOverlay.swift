@@ -12,6 +12,12 @@ final class ParticleOverlayView: MetalLayerView {
         let start: CFTimeInterval
         let seed: Float
         let texScale: Float
+        var stride: Int = 1
+
+        var particleCount: Int {
+            let w = (texture.width + stride - 1) / stride, h = (texture.height + stride - 1) / stride
+            return w * h
+        }
     }
 
     private var bursts: [Burst] = []
@@ -27,7 +33,8 @@ final class ParticleOverlayView: MetalLayerView {
     func burst(image: CGImage, frame: CGRect, scale: CGFloat) {
         guard let tex = MetalContext.shared.texture(from: image) else { return }
         bursts.append(Burst(texture: tex, frame: frame, start: CACurrentMediaTime(),
-                            seed: Float.random(in: 0...100), texScale: Float(scale)))
+                            seed: Float.random(in: 0...100), texScale: Float(scale),
+                            stride: RenderQuality.isPerformance ? 2 : 1))
         isPaused = false
     }
 
@@ -43,7 +50,7 @@ final class ParticleOverlayView: MetalLayerView {
             var u = Self.uniforms(b, time: Float((now - b.start) * Self.speed), view: bounds.size, pointScale: pointScale)
             enc.setVertexBytes(&u, length: MemoryLayout<ParticleUniforms>.stride, index: 0)
             enc.setVertexTexture(b.texture, index: 0)
-            enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: b.texture.width * b.texture.height)
+            enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: b.particleCount)
         }
         enc.endEncoding()
         cb.present(drawable)
@@ -57,7 +64,7 @@ final class ParticleOverlayView: MetalLayerView {
             rowW: Float(b.frame.width), rowH: Float(b.frame.height),
             viewW: Float(view.width), viewH: Float(view.height),
             texW: Float(b.texture.width), texH: Float(b.texture.height),
-            time: time, seed: b.seed, pointScale: pointScale, texScale: b.texScale)
+            time: time, seed: b.seed, pointScale: pointScale, texScale: b.texScale, stride: Float(b.stride))
     }
 }
 
