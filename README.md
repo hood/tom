@@ -1,6 +1,6 @@
 # tom · top of mind
 
-A tiny plasma orb that holds what you must not forget. It fills up and turns red as the list grows. One hotkey or click morphs it into the full list; completing an item burns it away.
+A tiny plasma orb that holds what you must not forget.
 
 ## Run
 ```sh
